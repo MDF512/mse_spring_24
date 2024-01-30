@@ -1,0 +1,17 @@
+version: "3"
+
+networks:
+  frontend:
+
+services:
+  mse:
+    image: mdf512/mse:latest
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    networks:
+      - frontend
+    hostname: mse
+    ports:
+      - "5600:5000"
+

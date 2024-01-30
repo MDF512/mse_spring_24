@@ -35,7 +35,7 @@ COLUMN_HEADERS = {
     "fde_comments": "fde_comments"
 }
 
-DRAMATIC = True
+DRAMATIC = False
 TIMER = 0.05
 
 class Cadet:
