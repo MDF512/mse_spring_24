@@ -1,5 +1,6 @@
 from google_auth import get_client
 import fpdf
+from time import sleep
 
 # Google Sheets key for accessing data
 SHEETKEY = "1QFDF2lgLYhfvvC4uXTn1BRsBpnBYPWFVPAnIjzColo4"
@@ -10,13 +11,15 @@ SCORE_TYPES = ["ori", "fde_lead", "fde_follower", "mkt"]
 # Mapping of flight names to squad names
 FLIGHT_SQUAD = {
     "FTP": "FTP",
+    "Yanke": "FTPS",
+    "Zulu": "FTPS",
     "Sierra": "CRCS",
     "Tango": "CRCS",
     "Uniform": "CFSS",
     "Victor": "CFSS"
 }
 
-# Column headers in the spread sheet. DO NOT CHANGE THE KEY.
+# Column headers in the spreadsheet. DO NOT CHANGE THE KEY.
 # If you ajust the names of the headers in the sheet change value of each here
 COLUMN_HEADERS = {
     'a_number': 'a_number',
@@ -25,13 +28,18 @@ COLUMN_HEADERS = {
     'flight': 'flight',
     'as_year': 'as_year',
     'ori': 'ori',
-    'fde_lead': 'ori',
+    'fde_lead': 'fde_lead',
     'fde_follower': 'fde_follower',
-    'mkt': 'mkt'
+    'mkt': 'mkt',
+    "ori_comments": "ori_comments",
+    "fde_comments": "fde_comments"
 }
 
+DRAMATIC = True
+TIMER = 0.05
+
 class Cadet:
-    def __init__(self, a_num, last_name, first_name, flight, as_year, ori, fde_lead, fde_follower, mkt):
+    def __init__(self, a_num, last_name, first_name, flight, as_year, ori, ori_comments, fde_lead, fde_follower, fde_comments, mkt):
         """
         Initializes a Cadet object with the provided information.
 
@@ -47,21 +55,26 @@ class Cadet:
         """
         self.total_score = 0
         self.possible_score = 0
-        self.a_num = a_num
-        self.last_name = last_name
-        self.first_name = first_name
-        self.flight = flight
+        self.a_num = a_num.strip()
+        self.last_name = last_name.strip()
+        self.first_name = first_name.strip()
+        self.flight = flight.strip()
         self.squad = FLIGHT_SQUAD[flight]
-        self.as_year = as_year
+        self.as_year = str(as_year).strip()
 
         self.ori = self.__record_score(ori)
         self.ori_third = "Not Attempted"
+        self.ori_comments = ori_comments
         self.fde_lead = self.__record_score(fde_lead)
         self.fde_lead_third = "Not Attempted"
         self.fde_follower = self.__record_score(fde_follower)
         self.fde_follower_third = "Not Attempted"
+        self.fde_comments = fde_comments
         self.mkt = self.__record_score(mkt)
         self.mkt_third = "Not Attempted"
+
+        self.total_third = ""
+        self.percent = self.total_score / self.possible_score
 
     def __record_score(self, score):
         """
@@ -101,9 +114,11 @@ class Cadet:
             self.fde_follower_third = third
         elif score == "mkt":
             self.mkt_third = third
+        elif score == "total":
+            self.total_third = third
         else:
             raise Exception(f"ERROR: {score} not recognized as a valid score type! "
-                            f"Accepted values: 'ori', 'fde_lead', 'fde_follower', 'mkt'")
+                            f"Accepted values: 'ori', 'fde_lead', 'fde_follower', 'mkt', 'totla'")
 
     def get_score(self, score_type):
         """
@@ -121,8 +136,35 @@ class Cadet:
             return self.fde_follower
         elif score_type == "mkt":
             return self.mkt
+        elif score_type == "total":
+            return self.total_score
+        elif score_type == "possible":
+            return self.possible_score
         else:
-            raise ValueError("Invalid score type. Accepted values: 'ori', 'fde_lead', 'fde_follower', 'mkt'")
+            raise ValueError("Invalid score type. Accepted values: 'ori', 'fde_lead', 'fde_follower', "
+                             "'mkt', 'total', 'possible'")
+
+    def get_third(self, score_type):
+        """
+        Gets the score for a specific evaluation type.
+
+        :param score_type: The evaluation type for which the score is requested.
+        :return: Score if available, "not attempted" for non-numeric scores
+        :raises ValueError: If an invalid score type is provided
+        """
+        if score_type == "ori":
+            return self.ori_third
+        elif score_type == "fde_lead":
+            return self.fde_lead_third
+        elif score_type == "fde_follower":
+            return self.fde_follower_third
+        elif score_type == "mkt":
+            return self.mkt_third
+        elif score_type == "total":
+            return self.total_third
+        else:
+            raise ValueError("Invalid score type. Accepted values: 'ori', 'fde_lead', 'fde_follower', "
+                             "'mkt', 'total'")
 
 
 def report_page(pdf, cadet):
@@ -136,6 +178,48 @@ def report_page(pdf, cadet):
     # Format the data into a PDF
     pdf.add_page()
 
+    def add_block(title, score, possible, third, comments):
+        """
+
+        :param possible: possible score
+        :type possible: int
+        :param title: Title of the block. Will be in bold
+        :type title: str
+        :param score: Integer score
+        :type score: int or str
+        :param third: Integer from 1-3
+        :type third: int
+        :param comments: Sting comments
+        :type comments: str
+        :return: none
+        """
+        nonlocal pdf
+        pdf.set_font("Times", size=16, style='B')
+        pdf.cell(0, 0.5, "", ln=1)
+        pdf.cell(0, h=0.25, txt=f"{title}:", ln=1, align="C")
+        pdf.set_font("Times", size=16)
+        if isinstance(score, int):
+            pdf.cell(0, h=0.25, txt=f"{score}/{possible}", ln=1, align="C")
+        elif isinstance(score, str):
+            pdf.cell(0, h=0.25, txt=score, ln=1, align="C")
+        else:
+            raise Exception(f"ERROR Expected int or 'Not Attempted string' when writing the score to the report "
+                            f"recived '{score}'")
+        if third == 3:
+            pdf.cell(0, h=0.25, txt="Bottom Third", ln=1, align="C")
+        elif third == 2:
+            pdf.cell(0, h=0.25, txt="Middle Third", ln=1, align="C")
+        elif third == 1:
+            pdf.cell(0, h=0.25, txt="Top Third", ln=1, align="C")
+        elif third == "Not Attempted":
+            pass
+        else:
+            raise ValueError(f"ERROR: Third is required to be an int from 1-3.")
+        if comments != "":
+            pdf.cell(0, h=0.25, txt=f"Comments: {comments}", ln=1, align="C")
+        else:
+            pass
+
     # Heading
     pdf.set_font("Times", size=36, style='B')
     pdf.cell(0, 0.5, "", ln=1)
@@ -144,51 +228,32 @@ def report_page(pdf, cadet):
     pdf.cell(0, h=0.3, txt=f"{cadet.squad}/{cadet.flight}", border="B", ln=1, align="C")
 
     # Military Skills Evaluation (mkt)
-    pdf.set_font("Times", size=16, style="B")
-    pdf.cell(0, 0.5, "", ln=1)
-    pdf.cell(0, h=0.25, txt="Military Skills Evaluation:", ln=1, align="C")
-    pdf.set_font("Times", size=16)
-    pdf.cell(0, h=0.25, txt=f"{cadet.mkt}/100", ln=1, align="C")
+    add_block("Military Knowledge Test", cadet.mkt, 100, cadet.mkt_third, "")
 
     # Open Ranks Inspection (ori)
-    pdf.set_font("Times", size=16, style="B")
-    pdf.cell(0, 0.5, "", ln=1)
-    pdf.cell(0, h=0.25, txt="Open Ranks Inspection:", ln=1, align="C")
-    pdf.set_font("Times", size=16)
-    pdf.cell(0, h=0.25, txt=str(cadet.ori), ln=1, align="C")
+    add_block("Open Ranks Inspection", cadet.ori, 100, cadet.ori_third, cadet.ori_comments)
 
     # Flight Drill Evaluation (fde_lead)
-    pdf.set_font("Times", size=16, style="B")
-    pdf.cell(0, 0.5, "", ln=1)
-    pdf.cell(0, h=0.25, txt="Flight Drill Evaluation:", ln=1, align="C")
-    pdf.set_font("Times", size=16)
-    pdf.cell(0, h=0.25, txt=str(cadet.fde_lead), ln=1, align="C")
+    add_block("Flight Drill Evaluation Lead", cadet.fde_lead, 100, cadet.fde_lead_third, "")
 
     # Flight Drill Evaluation (Marching) (fde_follower)
-    pdf.set_font("Times", size=16, style="B")
-    pdf.cell(0, 0.5, "", ln=1)
-    pdf.cell(0, h=0.25, txt="Marching:", ln=1, align="C")
-    pdf.set_font("Times", size=16)
-    pdf.cell(0, h=0.25, txt=f"{cadet.fde_follower}/100", ln=1, align="C")
+    add_block("Marching Evaluation", cadet.fde_follower, 100, cadet.fde_follower_third, cadet.fde_comments)
 
     # Cumulative Score
-    pdf.set_font("Times", size=16, style="B")
-    pdf.cell(0, 0.5, "", ln=1)
-    pdf.cell(0, h=0.25, txt="Cumulative Score:", ln=1, align="C")
-    pdf.set_font("Times", size=16)
-    pdf.cell(0, h=0.25, txt=f"{cadet.total_score}/{cadet.possible_score}", ln=1, align="C")
+    add_block("Total Score", cadet.total_score, cadet.possible_score, cadet.total_third, "")
 
 
 def main():
     """
     Main function to retrieve data from Google Sheets, process cadet information, and generate a PDF report.
     """
+    print("Opening the Spreadsheet")
     c = get_client()
     sh = c.open_by_key(SHEETKEY)
     score_input = sh.worksheet("score_input")
     raw_data = score_input.get_all_records()
     cadets_as_obj = []
-
+    print("Reading in cadet scores")
     # Convert raw data to Cadet objects
     for cadet in raw_data:
         cadets_as_obj.append(Cadet(
@@ -198,37 +263,101 @@ def main():
             cadet[COLUMN_HEADERS['flight']],
             cadet[COLUMN_HEADERS['as_year']],
             cadet[COLUMN_HEADERS['ori']],
+            cadet[COLUMN_HEADERS['ori_comments']],
             cadet[COLUMN_HEADERS['fde_lead']],
             cadet[COLUMN_HEADERS['fde_follower']],
+            cadet[COLUMN_HEADERS['fde_comments']],
             cadet[COLUMN_HEADERS['mkt']]
         ))
+        print(".", end="")
+        if DRAMATIC:
+            sleep(TIMER)
+    print("")
+    if DRAMATIC:
+        sleep(TIMER)
 
     # Add third place rankings for each score type
+    print("Determining Rankings")
     def add_third(score):
         nonlocal cadets_as_obj
-        lst = [cadet for cadet in cadets_as_obj if isinstance(cadet.get_score(score), int)]
-        lst = sorted(lst, key=lambda cadet: cadet.get_score(score))
-        for i in range(len(lst)):
-            if i <= (len(lst) / 3) - 1:
-                lst[i].set_third(3, score)
-            elif i <= 2 * (len(lst) / 3) - 1:
-                lst[i].set_third(2, score)
-            else:
-                lst[i].set_third(1, score)
+        lst_all = [cadet for cadet in cadets_as_obj if isinstance(cadet.get_score(score), int)]
+        lst_100s = [cadet for cadet in lst_all if cadet.as_year in ["100", "150"]]
+        lst_200s = [cadet for cadet in lst_all if cadet.as_year in ["200", "250", "500"]]
+        lst = [lst_100s, lst_200s]
+        for as_year in lst:
+            as_year = sorted(as_year, key=lambda cadet: cadet.get_score(score), reverse= True)
+            for i in range(len(as_year)):
+                if i == 0:
+                    as_year[i].set_third(1, score)
+                if as_year[i].get_score(score) == as_year[i - 1].get_score(score):
+                    third_to_set = as_year[i - 1].get_third(score)
+                    as_year[i].set_third(third_to_set, score)
+                else:
+                    if i <= (len(as_year) / 3) - 1:
+                        as_year[i].set_third(1, score)
+                    elif i <= 2 * (len(as_year) / 3) - 1:
+                        as_year[i].set_third(2, score)
+                    else:
+                        as_year[i].set_third(3, score)
+                print(".", end="")
+                if DRAMATIC:
+                    sleep(TIMER)
 
     # Add third place rankings for each score type
     for score in SCORE_TYPES:
         add_third(score)
+        print("")
+
+
+    lst_100s = [cadet for cadet in cadets_as_obj if cadet.as_year in ["100", "150"]]
+    lst_200s = [cadet for cadet in cadets_as_obj if cadet.as_year in ["200", "250", "500"]]
+    lsts = [lst_100s, lst_200s]
+
+    for as_year in lsts:
+        as_year = sorted(as_year, key=lambda cadet: cadet.percent, reverse=True)
+        for i in range(len(as_year)):
+            if i == 0:
+                as_year[i].set_third(1, "total")
+            if as_year[i].total_score == as_year[i-1].total_score:
+                as_year[i].total_third = as_year[i-1].total_third
+            else:
+                if i <= (len(as_year) / 3) - 1:
+                    as_year[i].set_third(1, "total")
+                elif i <= 2 * (len(as_year) / 3) - 1:
+                    as_year[i].set_third(2, "total")
+                else:
+                    as_year[i].set_third(3, "total")
+            print(".", end="")
+            if DRAMATIC:
+                sleep(TIMER)
+        print("")
+
 
     # Create a new PDF instance
     report = fpdf.FPDF("P", "in", 'Letter')
 
     # Generate report pages for each cadet
+    print("Generating Report")
     for cadet in cadets_as_obj:
         report_page(report, cadet)
+        print(".", end="")
+        if DRAMATIC:
+            sleep(TIMER)
+    print("")
 
     # Output or save the PDF
-    report.output("Score Report.pdf")  # You can specify the desired output filename
+    print("Exporting to PDF")
+    exported = False
+    while not exported:
+        try:
+            report.output("Score Report.pdf")  # You can specify the desired output filename
+            exported = True
+        except PermissionError:
+            input('Please close the Document! It is Locked. Press enter to try again.')
+
+    print("Success!")
+    sleep(2)
+
 
 
 if __name__ == '__main__':
