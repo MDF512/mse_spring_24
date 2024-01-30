@@ -1,2 +1,6 @@
 gspread
 fpdf
+flask
+flask_cors
+requests==2.26.0
+gunicorn
