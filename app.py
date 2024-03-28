@@ -15,15 +15,13 @@ def index():
 @app.route('/generate_report', methods=['POST'])
 def generate_report():
     try:
-        # Display to webpage
-        output = "Report Generated!"
-
         # Run your Python script here
-        main.main()
+        output = main.main()
 
         result_text = f"Output: {output}"
-
+        print(result_text)
         return result_text
+
     except Exception as e:
         return f"An error occurred: {str(e)}"
 
@@ -35,4 +33,4 @@ def download_report():
 
 
 if __name__ == '__main__':
-    app.run(debug=False)
+    app.run(debug=True)

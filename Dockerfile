@@ -2,7 +2,7 @@ FROM python:alpine
 LABEL authors="Michael Fretz"
 
 WORKDIR /usr/src/mse
-COPY ./requirements.txt ./app.py ./main.py ./google_auth.py ./
+COPY ./requirements.txt ./app.py ./main.py ./google_auth.py ./sheet_info.json ./
 COPY ./templates ./templates
 
 RUN apk update && \
